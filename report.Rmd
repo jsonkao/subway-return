@@ -1,0 +1,45 @@
+---
+title: "Title"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidycensus)
+library(rattle)
+library(stats)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+census_api_key("770d99e99657048c38996b39e4279606a713b35b")
+
+censusData <- get_acs(
+  geography = "tract",
+  variables = c(income = "B19013_001", population = "B01001_001"),
+  state = "NY",
+  year = 2018,
+  county = c("New York", "Kings", "Queens", "Bronx")
+) %>% 
+  select(-moe) %>% 
+  pivot_wider(names_from = variable, values_from = estimate) %>% 
+  filter(!is.na(income))
+```
+
+```{r}
+turnstileCounts <- read.csv("./turnstile_data.csv") %>% 
+  mutate(GEOID = as.character(GEOID), date = as.Date(date)) %>% 
+  inner_join(censusData, by = "GEOID") %>% 
+  mutate(
+    entries_norm = entries / population,
+    exits_norm = exits / population,
+  ) %>% 
+  mutate(income_bin = binning(income, bins = 5, method = c("quantile")))
+
+turnstileCounts %>% 
+  group_by(date, income_bin) %>% 
+  mutate(entries_avg = mean(entries_norm)) %>% 
+  ggplot(aes(date, entries_avg, color = income_bin)) +
+  geom_line()
+```
+

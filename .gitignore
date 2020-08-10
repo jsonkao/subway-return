@@ -1,0 +1,14 @@
+cb_2018_36_tract_500k
+cb_2018_36_tract_500k.zip
+download
+download.zip
+
+turnstile_data.csv
+
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+.DS_Store
