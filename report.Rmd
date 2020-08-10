@@ -1,5 +1,5 @@
 ---
-title: "Title"
+title: "Visualizing return to subway"
 output: html_document
 ---
 
@@ -8,12 +8,14 @@ library(tidyverse)
 library(tidycensus)
 library(rattle)
 library(stats)
+library(cowplot)
 knitr::opts_chunk$set(echo = TRUE)
+census_api_key("770d99e99657048c38996b39e4279606a713b35b")
 ```
 
-```{r}
-census_api_key("770d99e99657048c38996b39e4279606a713b35b")
+Read in census data.
 
+```{r}
 censusData <- get_acs(
   geography = "tract",
   variables = c(income = "B19013_001", population = "B01001_001"),
@@ -26,20 +28,87 @@ censusData <- get_acs(
   filter(!is.na(income))
 ```
 
+Read in the turnstile data. Merge it with the census data and create income quantiles.
+
 ```{r}
 turnstileCounts <- read.csv("./turnstile_data.csv") %>% 
   mutate(GEOID = as.character(GEOID), date = as.Date(date)) %>% 
   inner_join(censusData, by = "GEOID") %>% 
-  mutate(
-    entries_norm = entries / population,
-    exits_norm = exits / population,
-  ) %>% 
   mutate(income_bin = binning(income, bins = 5, method = c("quantile")))
 
-turnstileCounts %>% 
-  group_by(date, income_bin) %>% 
-  mutate(entries_avg = mean(entries_norm)) %>% 
-  ggplot(aes(date, entries_avg, color = income_bin)) +
-  geom_line()
+levels(turnstileCounts$income_bin) <- c("$11k to 37k", "$37k to 51k", "$51k to 67k", "$67k to 114k", "$114k to 250k")
 ```
+
+Create a baseline mean to represent February.
+
+```{r}
+baselineAvg <- turnstileCounts %>% 
+  filter(date < "2020-03-01" & date >= "2020-02-01") %>% 
+  group_by(date, income_bin) %>% 
+  summarize(entries_baseline = sum(entries, na.rm = TRUE)) %>% 
+  group_by(income_bin) %>% 
+  summarize(entries_baseline = mean(entries_baseline))
+```
+
+Graph entries based on income quantile.
+
+```{r}
+ma <- function(x, n = 7) {
+  stats::filter(x, rep(1 / n, n), sides = 1)
+}
+
+turnstileCounts %>% 
+  filter(date > as.Date("2020-03-01") - 7) %>% 
+  group_by(date, income_bin) %>% 
+  summarize(entries = sum(entries, na.rm = TRUE)) %>% 
+  left_join(baselineAvg, by = "income_bin") %>% 
+  mutate(pct_change = (entries - entries_baseline) / entries_baseline) %>% 
+  group_by(income_bin) %>% 
+  arrange(date, .by_group = TRUE) %>% 
+  mutate(pct_change = ma(pct_change, 7)) %>%
+  ggplot(aes(date, pct_change, color = income_bin)) +
+  geom_hline(yintercept = 0) +
+  geom_line() +
+  labs(
+    title = "Percent change in subway entries by income quantile",
+    subtitle = "Rolling 7-day average",
+    x = "Date",
+    color = "Income quantile"
+  ) +
+  theme(
+    axis.title.y = element_blank()
+  ) +
+  scale_y_continuous(labels = scales::percent_format(1)) +
+  scale_x_date(date_breaks = "1 month", labels = scales::date_format(format = "%B")) +
+  coord_cartesian(xlim = as.Date(c("2020-03-01", "2020-08-01")))
+```
+
+Same chart but without the rolling mean:
+
+```{r}
+turnstileCounts %>% 
+  filter(date > as.Date("2020-03-01") - 7) %>% 
+  group_by(date, income_bin) %>% 
+  summarize(entries = sum(entries, na.rm = TRUE)) %>% 
+  left_join(baselineAvg, by = "income_bin") %>% 
+  mutate(pct_change = (entries - entries_baseline) / entries_baseline) %>% 
+  group_by(income_bin) %>% 
+  arrange(date, .by_group = TRUE) %>% 
+  # mutate(pct_change = ma(pct_change, 7)) %>%
+  ggplot(aes(date, pct_change, color = income_bin)) +
+  geom_hline(yintercept = 0) +
+  geom_line() +
+  labs(
+    title = "Percent change in subway entries by income quantile",
+    x = "Date",
+    color = "Income quantile"
+  ) +
+  theme(
+    axis.title.y = element_blank()
+  ) +
+  scale_y_continuous(labels = scales::percent_format(1)) +
+  scale_x_date(date_breaks = "1 month", labels = scales::date_format(format = "%B")) +
+  coord_cartesian(xlim = as.Date(c("2020-03-01", "2020-08-01")))
+```
+
 
